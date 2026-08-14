@@ -1,0 +1,107 @@
+# ==============================================================================
+# Mercado Central 24h — Git Ignore Configuration (Feature F1)
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Python Virtual Environments
+# ------------------------------------------------------------------------------
+venv/
+.venv/
+env/
+.env/
+ENV/
+env.bak/
+venv.bak/
+
+# ------------------------------------------------------------------------------
+# 2. Python Bytecode & Cache Directories
+# ------------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# ------------------------------------------------------------------------------
+# 3. Testing, Coverage & Linters
+# ------------------------------------------------------------------------------
+.pytest_cache/
+.coverage
+.coverage.*
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.tox/
+.nox/
+.ruff_cache/
+.mypy_cache/
+
+# ------------------------------------------------------------------------------
+# 4. Databases, Vector Stores & Local Runtime Storage
+# ------------------------------------------------------------------------------
+chroma_db/
+.chroma/
+chroma/
+*.sqlite3
+*.db
+
+# ------------------------------------------------------------------------------
+# 5. Operating System & File System Metadata
+# ------------------------------------------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# ------------------------------------------------------------------------------
+# 6. Temporary Files & System Logs
+# ------------------------------------------------------------------------------
+*.tmp
+*.log
+*.bak
+*.swp
+*.swo
+*~
+.tmp/
+
+# ------------------------------------------------------------------------------
+# 7. IDE, Editor Settings & Environment Secrets
+# ------------------------------------------------------------------------------
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+.env
+.env.local
+.env.*.local
+
+# ------------------------------------------------------------------------------
+# 8. Agent Temporary Extraction & Scratch Subfolders (.agents/)
+# ------------------------------------------------------------------------------
+/.agents/explorer_m1/
+/.agents/explorer_m2/
+/.agents/skills/
+/.agents/*/docs_extracted/
+/.agents/*/pdf_texts/
