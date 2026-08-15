@@ -118,8 +118,24 @@ class ReRanker:
         - Densidade de palavras-chave exatas da query no texto
         - Score híbrido original (dense + sparse)
         """
-        query_words = set(re.findall(r"\w+", query.lower()))
-        query_words_clean = {w for w in query_words if len(w) > 2}
+        domain_acronyms = {"ia", "ai", "rh", "ti", "t1", "t2", "t3", "t4", "t5", "sp", "rj", "nf", "cd", "pj", "pf"}
+        synonym_map = {
+            "ia": ["ia", "inteligencia", "artificial"],
+            "ai": ["ai", "ia", "inteligencia", "artificial"],
+            "rh": ["rh", "recursos", "humanos"],
+            "dpo": ["dpo", "privacidade", "dados", "lgpd"],
+            "cdc": ["cdc", "consumidor", "codigo"],
+            "sac": ["sac", "atendimento", "suporte"],
+        }
+
+        raw_words = set(re.findall(r"\w+", query.lower()))
+        query_words_clean = {w for w in raw_words if len(w) > 2 or w in domain_acronyms}
+        
+        # Expande sinônimos
+        expanded_words = set(query_words_clean)
+        for w in query_words_clean:
+            if w in synonym_map:
+                expanded_words.update(synonym_map[w])
 
         scored_candidates: List[Dict[str, Any]] = []
         for item in results:
@@ -131,16 +147,16 @@ class ReRanker:
             hybrid_score = item.get("hybrid_score", 0.0)
 
             # Boost se os termos da busca estão no título da seção
-            title_matches = sum(1 for w in query_words_clean if w in section_title)
-            title_boost = (title_matches / len(query_words_clean)) * self.title_weight if query_words_clean else 0.0
+            title_matches = sum(1 for w in expanded_words if w in section_title)
+            title_boost = (title_matches / len(expanded_words)) * self.title_weight if expanded_words else 0.0
 
             # Boost se os termos da busca estão no nome do arquivo
-            file_matches = sum(1 for w in query_words_clean if w in file_name)
-            file_boost = (file_matches / len(query_words_clean)) * self.file_weight if query_words_clean else 0.0
+            file_matches = sum(1 for w in expanded_words if w in file_name)
+            file_boost = (file_matches / len(expanded_words)) * self.file_weight if expanded_words else 0.0
 
             # Cobertura de palavras no corpo do texto
-            text_matches = sum(1 for w in query_words_clean if w in text)
-            text_coverage = (text_matches / len(query_words_clean)) * self.text_weight if query_words_clean else 0.0
+            text_matches = sum(1 for w in expanded_words if w in text)
+            text_coverage = (text_matches / len(expanded_words)) * self.text_weight if expanded_words else 0.0
 
             # Pontuação final do Re-ranking
             rerank_score = (hybrid_score * self.hybrid_weight) + title_boost + file_boost + text_coverage

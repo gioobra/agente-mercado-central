@@ -12,6 +12,7 @@ MercadoCentral/
 ├── PROJECT.md                 # Especificação arquitetural, roadmap e contratos do projeto
 ├── README.md                  # Documentação principal do repositório
 ├── RELATORIO_AUDITORIA.md     # Relatório consolidado de auditoria e dívida técnica
+├── app.py                     # Interface Web Streamlit (Chat do Colaborador)
 ├── pytest.ini                 # Configurações de execução do Pytest
 ├── requirements.txt           # Especificação de dependências Python do projeto
 ├── docs/                      # Documentação Oficial da Empresa
@@ -30,15 +31,22 @@ MercadoCentral/
     │   └── processed_rag_chunks.jsonl
     ├── scripts/               # Scripts Python do Pipeline RAG (Pacote Python)
     │   ├── __init__.py        # Inicialização do pacote rag.scripts e declaração de __all__
+    │   ├── contact_catalog.py # Catálogo de contatos corporativos e roteamento inteligente
     │   ├── grounded_qa_agent.py  # Agente QA fundamentado com citações de fontes
+    │   ├── hallucination_checker.py # Verificador de consistência sentencial e anti-alucinação
     │   ├── hybrid_search.py   # Busca híbrida combinada (Densa ChromaDB + Esparsa BM25)
+    │   ├── multichannel_formatter.py # Formatador de respostas (Chat, E-mail, Teams/Slack)
     │   ├── rag_pdf_processor.py # Ingestão, limpeza, estruturação e chunking de PDFs
     │   ├── reranker.py        # Re-ranker RRF e fusão de pontuações de relevância
     │   └── vector_indexer.py  # Gerenciamento do banco vetorial ChromaDB e indexação
-    └── tests/                 # Suíte de Testes Automatizados
+    └── tests/                 # Suíte de Testes Automatizados (326 testes)
         ├── __init__.py        # Inicialização do pacote rag.tests
         ├── conftest.py        # Fixtures compartilhadas do Pytest
+        ├── test_adversarial_tier5.py # Testes de robustez adversarial e limites
         ├── test_e2e_scenarios.py # Testes integrados de cenários de negócios ponta a ponta
+        ├── test_hallucination_and_confidence.py # Testes de limiares e anti-alucinação
+        ├── test_m1_adversarial.py # Testes de consistência sentencial e grounding
+        ├── test_multichannel_and_catalog.py # Testes de catálogo e formatação multicanal
         ├── test_pdf_processor.py # Suíte dedicada de testes unitários do processador de PDFs
         └── test_rag_pipeline.py  # Testes unitários do pipeline RAG, indexador e reranker
 ```
@@ -148,3 +156,33 @@ Os scripts em `rag/scripts/` formam um pacote modular. Você pode executar cada 
    ```bash
    python3 -m rag.scripts.grounded_qa_agent
    ```
+
+---
+
+## 🖥️ Interface Web do Colaborador (Streamlit)
+
+O projeto inclui uma interface web conversacional moderna, rápida e intuitiva dedicada aos colaboradores do Mercado Central 24h:
+
+### Recursos da Interface:
+- 💬 **Chat Web com Histórico de Conversa**: Contexto contínuo durante a sessão e botão para reiniciar conversa.
+- 🤖 **Aviso de Transparência de IA**: Identificação clara de que se trata de um assistente virtual baseado em IA generativa e RAG.
+- 📚 **Visualização de Fontes**: Expander em cada resposta detalhando o documento PDF, seção e páginas exatas consultadas.
+- 👍/👎 **Botão de Feedback**: Avaliação nativa em cada resposta da IA com feedback instantâneo.
+- ⚙️ **Configurações e Filtros**:
+  - Seleção de canal de formatação: Chat, E-mail Corporativo Formal, Teams / Slack.
+  - Filtro por departamento/categoria de documento.
+  - Toggle de boost temporal para priorizar normas recentes.
+  - Ajuste dinâmico do limiar de confiança (`confidence_threshold`).
+- 📞 **Catálogo Rápido de Contatos**: Acesso direto a e-mails e SLAs de RH, Jurídico, DPO, Compras, SAC e Ouvidoria.
+
+### Como Executar a Aplicação Web:
+
+```bash
+# Ative o ambiente virtual
+source venv/bin/activate
+
+# Inicie o servidor Streamlit
+streamlit run app.py
+```
+
+A aplicação será aberta automaticamente no seu navegador padrão em `http://localhost:8501`.

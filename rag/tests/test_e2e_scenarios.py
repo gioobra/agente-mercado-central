@@ -102,6 +102,54 @@ def test_pairwise_category_metadata_routing(mock_chunks, temp_chroma_db):
     assert all(r["category"] == "Logística & Delivery" for r in logistics_results)
 
 
+def test_pairwise_recency_boost_policy_evolution(temp_chroma_db):
+    """Integração Par-a-Par: Evolução de Políticas e Priorização por Recência (Fase 3 -> ReRanker -> QA)."""
+    policy_evolution_chunks = [
+        {
+            "chunk_id": "POL_VIP_2023",
+            "file_name": "Regulamento_Fidelidade_2023.pdf",
+            "file_path": "/docs/Regulamento_Fidelidade_2023.pdf",
+            "category": "Fidelidade VIP",
+            "department_author": "Marketing",
+            "last_updated": "Janeiro de 2023",
+            "section_title": "Regras Cashback VIP Diamante 2023",
+            "page_start": 1,
+            "page_end": 1,
+            "char_count": 200,
+            "word_count": 30,
+            "text": "Benefício VIP Diamante: Cashback de 1,5% em todas as compras e frete grátis acima de R$ 150,00."
+        },
+        {
+            "chunk_id": "POL_VIP_2026",
+            "file_name": "Regulamento_Fidelidade_2026.pdf",
+            "file_path": "/docs/Regulamento_Fidelidade_2026.pdf",
+            "category": "Fidelidade VIP",
+            "department_author": "Marketing",
+            "last_updated": "Agosto de 2026",
+            "section_title": "Regras Cashback VIP Diamante 2026",
+            "page_start": 1,
+            "page_end": 1,
+            "char_count": 200,
+            "word_count": 30,
+            "text": "Benefício VIP Diamante: Cashback de 2,0% em todas as compras e frete grátis acima de R$ 100,00."
+        }
+    ]
+
+    indexer = VectorIndexer(use_mock=True, db_path=temp_chroma_db)
+    indexer.index_chunks(policy_evolution_chunks)
+
+    searcher = HybridSearcher(vector_indexer=indexer, chunks_data=policy_evolution_chunks)
+    reranker = ReRanker(method="hybrid_fusion")
+    agent = GroundedQAAgent(indexer=indexer, searcher=searcher, reranker=reranker)
+
+    # Executa com boost temporal ativado
+    res = agent.answer("Qual o cashback do Cliente VIP Diamante?", recency_boost=True)
+    assert len(res["citations"]) > 0
+    # O chunk de 2026 deve ser o top source
+    assert res["citations"][0]["chunk_id"] == "POL_VIP_2026"
+    assert "Regulamento_Fidelidade_2026.pdf" in res["citations"][0]["file_name"]
+
+
 # ============================================================================
 # TIER 4: CENÁRIOS E2E DE APLICAÇÃO REAL E REGRAS DE NEGÓCIO
 # ============================================================================

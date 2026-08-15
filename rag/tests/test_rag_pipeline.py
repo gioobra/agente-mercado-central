@@ -9,7 +9,15 @@ import pytest
 from typing import Dict, Any
 
 from rag.scripts.vector_indexer import VectorIndexer, MockEmbeddingFunction
-from rag.scripts.hybrid_search import HybridSearcher, normalize_text, tokenize_portuguese
+from rag.scripts.hybrid_search import (
+    HybridSearcher,
+    PORTUGUESE_MONTHS,
+    PORTUGUESE_STOPWORDS,
+    calculate_recency_score,
+    normalize_text,
+    parse_date_value,
+    tokenize_portuguese,
+)
 from rag.scripts.reranker import ReRanker
 from rag.scripts.grounded_qa_agent import GroundedQAAgent
 import rag.scripts.vector_indexer as vi_mod
@@ -280,3 +288,313 @@ def test_grounded_qa_agent_structure(initialized_pipeline):
     assert "answer" in response
     assert "citations" in response
     assert "sources_used" in response
+
+
+# ============================================================================
+# 6. TESTES DE FILTRAGEM TEMPORAL & RECENCY BOOST (R1, R2, AC1-AC7)
+# ============================================================================
+
+def test_parse_date_value_various_formats():
+    """Valida parsing de datas em formato ISO, texto por extenso PT-BR, timestamp numérico e fallbacks seguros."""
+    import datetime
+    assert parse_date_value("Agosto de 2026") == datetime.datetime(2026, 8, 1)
+    assert parse_date_value("14 de Agosto de 2026") == datetime.datetime(2026, 8, 14)
+    assert parse_date_value("Março de 2025") == datetime.datetime(2025, 3, 1)
+    assert parse_date_value("2026") == datetime.datetime(2026, 1, 1)
+    assert parse_date_value("2026-08-14") == datetime.datetime(2026, 8, 14)
+    assert parse_date_value("2026-08-14T10:30:00") == datetime.datetime(2026, 8, 14, 10, 30, 0)
+    assert parse_date_value("15/08/2026") == datetime.datetime(2026, 8, 15)
+    assert parse_date_value("08/2026") == datetime.datetime(2026, 8, 1)
+    assert parse_date_value(datetime.date(2026, 8, 14)) == datetime.datetime(2026, 8, 14)
+    assert parse_date_value(datetime.datetime(2026, 8, 14, 12, 0)) == datetime.datetime(2026, 8, 14, 12, 0)
+    assert parse_date_value(None) is None
+    assert parse_date_value("") is None
+    assert parse_date_value("   ") is None
+    assert parse_date_value(True) is None
+    assert parse_date_value(False) is None
+    assert parse_date_value("Data desconhecida inválida") is None
+
+
+def test_calculate_recency_score_normalization():
+    """Valida normalização do score de recência no intervalo [0.0, 1.0]."""
+    import datetime
+    t_min = datetime.datetime(2024, 1, 1).timestamp()
+    t_max = datetime.datetime(2026, 8, 1).timestamp()
+
+    # Mais recente deve ser 1.0
+    score_new = calculate_recency_score("Agosto de 2026", t_min, t_max)
+    assert score_new == pytest.approx(1.0, rel=1e-3)
+
+    # Mais antigo deve ser 0.0
+    score_old = calculate_recency_score("Janeiro de 2024", t_min, t_max)
+    assert score_old == pytest.approx(0.0, rel=1e-3)
+
+    # Data intermediária deve estar entre 0 e 1
+    score_mid = calculate_recency_score("Outubro de 2025", t_min, t_max)
+    assert 0.0 < score_mid < 1.0
+
+    # Data inválida ou nula retorna 0.0
+    assert calculate_recency_score(None, t_min, t_max) == 0.0
+    assert calculate_recency_score("invalido", t_min, t_max) == 0.0
+
+    # Quando min e max são iguais, retorna 1.0 para datas válidas
+    assert calculate_recency_score("Agosto de 2026", t_max, t_max) == 1.0
+
+
+def test_hybrid_search_recency_boost_prioritizes_recent_over_old_similar_chunks(temp_chroma_db):
+    """
+    Valida que documentos com last_updated mais recente recebem boost de score e são priorizados
+    sobre documentos mais antigos com relevância semântica similar (AC1, AC2, AC6).
+    """
+    chunks = [
+        {
+            "chunk_id": "RECURSO_OLD_2024",
+            "file_name": "Politica_Entregas_2024.pdf",
+            "file_path": "/docs/Politica_Entregas_2024.pdf",
+            "category": "Logística",
+            "department_author": "Logística",
+            "last_updated": "Janeiro de 2024",
+            "section_title": "Frete Grátis Diamante",
+            "page_start": 1,
+            "page_end": 1,
+            "char_count": 150,
+            "word_count": 25,
+            "text": "Regra de Frete Grátis Cliente Diamante: compras acima de R$ 120,00 no app têm entrega grátis."
+        },
+        {
+            "chunk_id": "RECURSO_NEW_2026",
+            "file_name": "Politica_Entregas_2026.pdf",
+            "file_path": "/docs/Politica_Entregas_2026.pdf",
+            "category": "Logística",
+            "department_author": "Logística",
+            "last_updated": "Agosto de 2026",
+            "section_title": "Frete Grátis Diamante Atualizado",
+            "page_start": 1,
+            "page_end": 1,
+            "char_count": 150,
+            "word_count": 25,
+            "text": "Regra de Frete Grátis Cliente Diamante: compras acima de R$ 100,00 no app têm entrega grátis."
+        }
+    ]
+
+    indexer = VectorIndexer(use_mock=True, db_path=temp_chroma_db)
+    indexer.index_chunks(chunks)
+
+    searcher = HybridSearcher(vector_indexer=indexer, chunks_data=chunks, alpha=0.5)
+
+    # 1. Sem recency boost (recency_boost=False)
+    results_unboosted = searcher.search("Frete Grátis Cliente Diamante", top_k=2, recency_boost=False)
+    assert len(results_unboosted) == 2
+    for r in results_unboosted:
+        assert r["recency_boost"] == 0.0
+
+    # 2. Com recency boost ativado (recency_boost=True)
+    results_boosted = searcher.search("Frete Grátis Cliente Diamante", top_k=2, recency_boost=True, recency_weight=0.20)
+    assert len(results_boosted) == 2
+
+    top_result = results_boosted[0]
+    second_result = results_boosted[1]
+
+    # O chunk de 2026 deve ser o primeiro
+    assert top_result["chunk_id"] == "RECURSO_NEW_2026"
+    assert second_result["chunk_id"] == "RECURSO_OLD_2024"
+
+    # O chunk mais recente recebeu maior pontuação de recência e score híbrido final superior
+    assert top_result["recency_score"] > second_result["recency_score"]
+    assert top_result["recency_boost"] > second_result["recency_boost"]
+    assert top_result["hybrid_score"] > second_result["hybrid_score"]
+
+
+def test_hybrid_search_recency_boost_does_not_exclude_old_documents(temp_chroma_db):
+    """
+    Valida que documentos antigos relevantes NÃO são excluídos pelo boost temporal,
+    mantendo-se presentes nos resultados reordenados por relevância combinada (AC3).
+    """
+    chunks = [
+        {
+            "chunk_id": "REEMBOLSO_OLD_2024",
+            "file_name": "Politica_Reembolso_2024.pdf",
+            "file_path": "/docs/Politica_Reembolso_2024.pdf",
+            "category": "Atendimento & CDC",
+            "department_author": "SAC",
+            "last_updated": "Janeiro de 2024",
+            "section_title": "Arrependimento e Estorno",
+            "page_start": 1,
+            "page_end": 1,
+            "char_count": 180,
+            "word_count": 25,
+            "text": "O cliente pode solicitar devolução por arrependimento em até 7 dias corridos após o recebimento."
+        },
+        {
+            "chunk_id": "ESCALA_NEW_2026",
+            "file_name": "Regulamento_RH_2026.pdf",
+            "file_path": "/docs/Regulamento_RH_2026.pdf",
+            "category": "RH",
+            "department_author": "RH",
+            "last_updated": "Agosto de 2026",
+            "section_title": "Escala de Trabalho 5x2",
+            "page_start": 1,
+            "page_end": 1,
+            "char_count": 180,
+            "word_count": 25,
+            "text": "A jornada semanal de trabalho é distribuída em escala 5x2 de 44 horas semanais."
+        }
+    ]
+
+    indexer = VectorIndexer(use_mock=True, db_path=temp_chroma_db)
+    indexer.index_chunks(chunks)
+
+    searcher = HybridSearcher(vector_indexer=indexer, chunks_data=chunks)
+
+    # Busca sobre devolução/arrependimento com recency_boost=True
+    results = searcher.search("devolução por arrependimento 7 dias", top_k=2, recency_boost=True)
+
+    # O documento antigo relevante deve estar presente e na primeira posição
+    assert len(results) >= 1
+    assert results[0]["chunk_id"] == "REEMBOLSO_OLD_2024"
+    chunk_ids = [r["chunk_id"] for r in results]
+    assert "REEMBOLSO_OLD_2024" in chunk_ids
+
+
+def test_grounded_qa_agent_with_and_without_recency_boost(initialized_pipeline):
+    """Valida que o agente E2E funciona perfeitamente com e sem recency_boost (AC4)."""
+    agent = initialized_pipeline["agent"]
+
+    query = "Qual é o valor mínimo de compra para ter frete grátis sendo Cliente VIP Diamante?"
+
+    # Execução 1: Sem boost temporal
+    resp_without_boost = agent.answer(query, recency_boost=False)
+    assert resp_without_boost["query"] == query
+    assert len(resp_without_boost["answer"]) > 0
+    assert len(resp_without_boost["citations"]) > 0
+
+    # Execução 2: Com boost temporal ativado
+    resp_with_boost = agent.answer(query, recency_boost=True, recency_weight=0.15)
+    assert resp_with_boost["query"] == query
+    assert len(resp_with_boost["answer"]) > 0
+    assert len(resp_with_boost["citations"]) > 0
+
+
+def test_hybrid_searcher_initialization_with_recency_boost(temp_chroma_db, mock_chunks):
+    """Valida inicialização do HybridSearcher com recency_boost=True como default de instância."""
+    indexer = VectorIndexer(use_mock=True, db_path=temp_chroma_db)
+    indexer.index_chunks(mock_chunks)
+
+    searcher_default_on = HybridSearcher(
+        vector_indexer=indexer,
+        chunks_data=mock_chunks,
+        recency_boost=True,
+        recency_weight=0.25,
+    )
+    assert searcher_default_on.recency_boost is True
+    assert searcher_default_on.recency_weight == 0.25
+
+    results = searcher_default_on.search("Cliente VIP Diamante", top_k=2)
+    assert len(results) > 0
+    assert "recency_score" in results[0]
+    assert "recency_boost" in results[0]
+
+
+def test_hybrid_search_recency_boost_with_mixed_date_types(temp_chroma_db):
+    """Valida candidate pool com tipos mistos de data (datetime, date, ISO string, PT-BR string, English string)."""
+    import datetime
+    chunks = [
+        {"chunk_id": "C_DT", "text": "Regra datetime objeto", "last_updated": datetime.datetime(2026, 8, 14, 10, 0)},
+        {"chunk_id": "C_DATE", "text": "Regra date objeto", "last_updated": datetime.date(2026, 8, 1)},
+        {"chunk_id": "C_ISO", "text": "Regra ISO string", "last_updated": "2026-07-15T08:00:00Z"},
+        {"chunk_id": "C_PT", "text": "Regra PT-BR string", "last_updated": "1º de Junho de 2026"},
+        {"chunk_id": "C_EN", "text": "Regra English string", "last_updated": "May 10th, 2026"},
+        {"chunk_id": "C_OLD", "text": "Regra Antiga", "last_updated": "2023-01-01"},
+    ]
+    indexer = VectorIndexer(use_mock=True, db_path=temp_chroma_db)
+    indexer.index_chunks(chunks)
+    searcher = HybridSearcher(vector_indexer=indexer, chunks_data=chunks)
+
+    results = searcher.search("Regra", top_k=6, recency_boost=True)
+    assert len(results) == 6
+    # O mais recente (Agosto 14, 2026) deve ter recency_score 1.0
+    c_dt_res = [r for r in results if r["chunk_id"] == "C_DT"][0]
+    c_old_res = [r for r in results if r["chunk_id"] == "C_OLD"][0]
+    assert c_dt_res["recency_score"] == pytest.approx(1.0, rel=1e-3)
+    assert c_old_res["recency_score"] == pytest.approx(0.0, rel=1e-3)
+    assert c_dt_res["recency_boost"] > c_old_res["recency_boost"]
+
+
+def test_grounded_qa_agent_string_boolean_recency_boost(initialized_pipeline):
+    """Valida GroundedQAAgent com flags em string ('true' / 'false')."""
+    agent = initialized_pipeline["agent"]
+    query = "Qual o prazo para devolução por arrependimento?"
+
+    res_false = agent.answer(query, recency_boost="false")
+    assert len(res_false["citations"]) > 0
+
+    res_true = agent.answer(query, recency_boost="true")
+    assert len(res_true["citations"]) > 0
+
+
+def test_hybrid_search_recency_boost_tie_breaking(temp_chroma_db):
+    """Valida que o boost de recência quebra empates de relevância semântica em favor do documento mais novo."""
+    chunks = [
+        {"chunk_id": "TIE_2023", "text": "Regra idêntica para estorno e devolução", "last_updated": "2023-01-01"},
+        {"chunk_id": "TIE_2026", "text": "Regra idêntica para estorno e devolução", "last_updated": "2026-08-01"},
+    ]
+    indexer = VectorIndexer(use_mock=True, db_path=temp_chroma_db)
+    indexer.index_chunks(chunks)
+    searcher = HybridSearcher(vector_indexer=indexer, chunks_data=chunks)
+
+    # Com recency boost ativado, o chunk de 2026 deve vencer inequivocamente
+    results = searcher.search("Regra idêntica para estorno e devolução", top_k=2, recency_boost=True)
+    assert len(results) == 2
+    assert results[0]["chunk_id"] == "TIE_2026"
+    assert results[1]["chunk_id"] == "TIE_2023"
+    assert results[0]["hybrid_score"] > results[1]["hybrid_score"]
+
+
+def test_hybrid_search_recency_boost_doc_meta_filtering_and_extraction(temp_chroma_db):
+    """Valida extração de datas e filtragem de metadados em estruturas aninhadas sob doc_meta."""
+    chunks = [
+        {
+            "chunk_id": "DOC_META_OLD",
+            "text": "Procedimento operacional do setor financeiro",
+            "doc_meta": {"category": "Financeiro", "published_at": "Janeiro de 2024"},
+        },
+        {
+            "chunk_id": "DOC_META_NEW",
+            "text": "Procedimento operacional do setor financeiro atualizado",
+            "doc_meta": {"category": "Financeiro", "published_at": "Agosto de 2026"},
+        },
+    ]
+    indexer = VectorIndexer(use_mock=True, db_path=temp_chroma_db)
+    indexer.index_chunks(chunks)
+    searcher = HybridSearcher(vector_indexer=indexer, chunks_data=chunks)
+
+    results = searcher.search(
+        "Procedimento operacional financeiro",
+        top_k=2,
+        metadata_filter={"category": "Financeiro"},
+        recency_boost=True,
+    )
+    assert len(results) == 2
+    assert results[0]["chunk_id"] == "DOC_META_NEW"
+    assert results[0]["recency_score"] > results[1]["recency_score"]
+
+
+def test_hybrid_search_recency_boost_single_item_and_empty_result(temp_chroma_db):
+    """Valida comportamento robusto com resultado único ou busca sem resultados com recency boost."""
+    single_chunk = [{"chunk_id": "SINGLE_01", "text": "Regra única", "last_updated": "Agosto de 2026"}]
+    indexer = VectorIndexer(use_mock=True, db_path=temp_chroma_db)
+    indexer.index_chunks(single_chunk)
+    searcher = HybridSearcher(vector_indexer=indexer, chunks_data=single_chunk)
+
+    # 1 item retorna com recency_score = 1.0
+    res_single = searcher.search("Regra", top_k=1, recency_boost=True)
+    assert len(res_single) == 1
+    assert res_single[0]["recency_score"] == 1.0
+    assert res_single[0]["recency_boost"] > 0.0
+
+    # Busca vazia
+    res_empty = searcher.search("termo_completamente_inexistente_xyz_999", top_k=0, recency_boost=True)
+    assert res_empty == []
+
+
+

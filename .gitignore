@@ -63,6 +63,8 @@ chroma_db/
 chroma/
 *.sqlite3
 *.db
+rag/data/vector_store/
+.agents/
 
 # ------------------------------------------------------------------------------
 # 5. Operating System & File System Metadata

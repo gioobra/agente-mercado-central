@@ -11,6 +11,7 @@ Tests edge cases, boundary conditions, invalid inputs, unhandled exceptions,
 and potential logic defects.
 """
 
+import datetime
 import json
 import os
 import shutil
@@ -40,8 +41,11 @@ import rag.scripts.vector_indexer as vi_mod
 from rag.scripts.hybrid_search import (
     HybridSearcher,
     PORTUGUESE_STOPWORDS,
+    PORTUGUESE_MONTHS,
     normalize_text,
     tokenize_portuguese,
+    parse_date_value,
+    calculate_recency_score,
 )
 from rag.scripts.reranker import ReRanker
 from rag.scripts.grounded_qa_agent import GroundedQAAgent
@@ -786,3 +790,359 @@ def test_adv_qa_no_api_key_initialization(monkeypatch, temp_chroma_db, mock_chun
     res = agent.answer("Qual é o frete grátis Cliente VIP Diamante?")
     assert "Com base na documentação oficial" in res["answer"]
     assert len(res["citations"]) > 0
+
+
+def test_adv_hybrid_recency_boost_with_corrupted_dates(temp_chroma_db):
+    """Adversarial Test: HybridSearcher with malformed/corrupted last_updated strings."""
+    corrupted_chunks = [
+        {"chunk_id": "CORRUPT_01", "text": "Texto com data invalida", "last_updated": "???data-quebrada???"},
+        {"chunk_id": "CORRUPT_02", "text": "Texto sem data", "last_updated": None},
+        {"chunk_id": "CORRUPT_03", "text": "Texto com data valida", "last_updated": "Agosto de 2026"},
+    ]
+    indexer = VectorIndexer(use_mock=True, db_path=temp_chroma_db)
+    indexer.index_chunks(corrupted_chunks)
+    searcher = HybridSearcher(vector_indexer=indexer, chunks_data=corrupted_chunks, recency_boost=True)
+
+    results = searcher.search("Texto", top_k=3, recency_boost=True)
+    assert len(results) == 3
+    # Chunk com data válida recebe recency_score 1.0, chunks corrompidos recebem 0.0
+    valid_res = [r for r in results if r["chunk_id"] == "CORRUPT_03"][0]
+    corrupt_res = [r for r in results if r["chunk_id"] == "CORRUPT_01"][0]
+    assert valid_res["recency_score"] == 1.0
+    assert corrupt_res["recency_score"] == 0.0
+
+
+def test_adv_hybrid_recency_boost_negative_and_zero_weight(temp_chroma_db, mock_chunks):
+    """Adversarial Test: Passing negative recency_weight or recency_boost=0."""
+    indexer = VectorIndexer(use_mock=True, db_path=temp_chroma_db)
+    indexer.index_chunks(mock_chunks)
+    searcher = HybridSearcher(vector_indexer=indexer, chunks_data=mock_chunks)
+
+    # Weight negativo é clamped para 0.0
+    res_neg = searcher.search("Frete grátis", recency_boost=True, recency_weight=-1.0)
+    for r in res_neg:
+        assert r["recency_boost"] == 0.0
+
+    # recency_boost=0.0 desativa o boost
+    res_zero = searcher.search("Frete grátis", recency_boost=0.0)
+    for r in res_zero:
+        assert r["recency_boost"] == 0.0
+
+
+def test_adv_hybrid_recency_boost_float_weight_shorthand(temp_chroma_db, mock_chunks):
+    """Adversarial Test: Passing float directly to recency_boost enables boost with that weight."""
+    indexer = VectorIndexer(use_mock=True, db_path=temp_chroma_db)
+    indexer.index_chunks(mock_chunks)
+    searcher = HybridSearcher(vector_indexer=indexer, chunks_data=mock_chunks)
+
+    results = searcher.search("Frete grátis", recency_boost=0.35)
+    assert len(results) > 0
+    # Valida que o boost foi aplicado
+    for r in results:
+        assert "recency_boost" in r
+
+
+def test_adv_qa_recency_boost_propagation(temp_chroma_db, mock_chunks):
+    """Adversarial Test: GroundedQAAgent correctly propagates recency parameters to HybridSearcher."""
+    indexer = VectorIndexer(use_mock=True, db_path=temp_chroma_db)
+    indexer.index_chunks(mock_chunks)
+    searcher = HybridSearcher(vector_indexer=indexer, chunks_data=mock_chunks)
+    reranker = ReRanker(method="hybrid_fusion")
+    agent = GroundedQAAgent(indexer=indexer, searcher=searcher, reranker=reranker, recency_boost=True, recency_weight=0.20)
+
+    res = agent.answer("Cliente VIP Diamante", recency_boost=True, recency_weight=0.30)
+    assert isinstance(res, dict)
+    assert "answer" in res
+
+
+def test_adv_parse_date_advanced_formats_and_edge_cases():
+    """Adversarial Test: parse_date_value with ordinals, English formats, timestamps, NaN/Inf, and boundaries."""
+    # Ordinais em português
+    assert parse_date_value("1º de Agosto de 2026") == datetime.datetime(2026, 8, 1)
+    assert parse_date_value("1o de Agosto de 2026") == datetime.datetime(2026, 8, 1)
+    assert parse_date_value("1° de Agosto de 2026") == datetime.datetime(2026, 8, 1)
+    assert parse_date_value("15 de agosto de 2026") == datetime.datetime(2026, 8, 15)
+
+    # Formatos em inglês e variações
+    assert parse_date_value("August 14, 2026") == datetime.datetime(2026, 8, 14)
+    assert parse_date_value("August 14th, 2026") == datetime.datetime(2026, 8, 14)
+    assert parse_date_value("14 August 2026") == datetime.datetime(2026, 8, 14)
+    assert parse_date_value("14th August 2026") == datetime.datetime(2026, 8, 14)
+    assert parse_date_value("August 2026") == datetime.datetime(2026, 8, 1)
+    assert parse_date_value("Aug 2026") == datetime.datetime(2026, 8, 1)
+
+    # Formatos com barra e ponto YYYY/MM e MM/DD/YYYY
+    assert parse_date_value("2026/08") == datetime.datetime(2026, 8, 1)
+    assert parse_date_value("2026.08") == datetime.datetime(2026, 8, 1)
+    assert parse_date_value("2026/08/14") == datetime.datetime(2026, 8, 14)
+    assert parse_date_value("08/14/2026") == datetime.datetime(2026, 8, 14)
+
+    # Timestamps em string e milissegundos
+    ts_sec = 1786665600
+    dt_from_sec = parse_date_value(str(ts_sec))
+    assert dt_from_sec is not None
+    assert dt_from_sec.year == 2026
+
+    # Entradas inválidas / NaN / Inf
+    assert parse_date_value(float("nan")) is None
+    assert parse_date_value(float("inf")) is None
+    assert parse_date_value(-float("inf")) is None
+
+    # Paridade entre timezone-aware UTC e naive datetime
+    dt_aware = parse_date_value("2026-08-14T00:00:00Z")
+    dt_naive = parse_date_value("14 de Agosto de 2026")
+    assert dt_aware == dt_naive
+
+
+def test_adv_hybrid_recency_boost_string_and_boundary_parameters(temp_chroma_db, mock_chunks):
+    """Adversarial Test: Passing string boolean indicators or nan/inf weights to search()."""
+    indexer = VectorIndexer(use_mock=True, db_path=temp_chroma_db)
+    indexer.index_chunks(mock_chunks)
+    searcher = HybridSearcher(vector_indexer=indexer, chunks_data=mock_chunks)
+
+    # String booleans desativando boost
+    for false_str in ["false", "False", "0", "0.0", "no", "off", "disable"]:
+        res = searcher.search("Frete", recency_boost=false_str)
+        for r in res:
+            assert r["recency_boost"] == 0.0
+
+    # String booleans ativando boost
+    for true_str in ["true", "True", "1", "yes", "on", "enable"]:
+        res = searcher.search("Frete", recency_boost=true_str)
+        assert any(r["recency_boost"] > 0 for r in res)
+
+    # String com float
+    res_float_str = searcher.search("Frete", recency_boost="0.30")
+    assert any(r["recency_boost"] > 0 for r in res_float_str)
+
+    # Weights inválidos (NaN/Inf)
+    res_nan = searcher.search("Frete", recency_boost=True, recency_weight=float("nan"))
+    for r in res_nan:
+        assert r["recency_boost"] == 0.0
+
+
+def test_adv_hybrid_recency_boost_nested_metadata(temp_chroma_db):
+    """Adversarial Test: Chunks with date nested in metadata or alternative keys."""
+    nested_chunks = [
+        {
+            "chunk_id": "NESTED_OLD",
+            "text": "Regra antiga de atendimento.",
+            "metadata": {"last_updated": "Janeiro de 2024"},
+        },
+        {
+            "chunk_id": "NESTED_NEW",
+            "text": "Regra nova de atendimento.",
+            "metadata": {"last_updated": "Agosto de 2026"},
+        },
+    ]
+    indexer = VectorIndexer(use_mock=True, db_path=temp_chroma_db)
+    indexer.index_chunks(nested_chunks)
+    searcher = HybridSearcher(vector_indexer=indexer, chunks_data=nested_chunks)
+
+    results = searcher.search("Regra de atendimento", top_k=2, recency_boost=True)
+    assert len(results) == 2
+    assert results[0]["chunk_id"] == "NESTED_NEW"
+    assert results[0]["recency_score"] > results[1]["recency_score"]
+
+
+def test_adv_hybrid_recency_boost_all_same_dates_preserves_score_order(temp_chroma_db):
+    """Adversarial Test: Multiple chunks with the exact same date maintain rank order."""
+    chunks = [
+        {"chunk_id": "SAME_1", "text": "Palavra chave teste alta relevancia teste teste", "last_updated": "Agosto de 2026"},
+        {"chunk_id": "SAME_2", "text": "Palavra chave menor relevancia", "last_updated": "Agosto de 2026"},
+    ]
+    indexer = VectorIndexer(use_mock=True, db_path=temp_chroma_db)
+    indexer.index_chunks(chunks)
+    searcher = HybridSearcher(vector_indexer=indexer, chunks_data=chunks)
+
+    res_no_boost = searcher.search("Palavra chave teste", top_k=2, recency_boost=False)
+    res_boost = searcher.search("Palavra chave teste", top_k=2, recency_boost=True)
+
+    assert [r["chunk_id"] for r in res_no_boost] == [r["chunk_id"] for r in res_boost]
+    assert all(r["recency_score"] == 1.0 for r in res_boost)
+
+
+def test_adv_hybrid_recency_boost_all_none_dates_safe(temp_chroma_db):
+    """Adversarial Test: Chunks with no valid dates execute safely without division by zero."""
+    chunks = [
+        {"chunk_id": "NONE_1", "text": "Texto sem data um", "last_updated": None},
+        {"chunk_id": "NONE_2", "text": "Texto sem data dois", "last_updated": ""},
+    ]
+    indexer = VectorIndexer(use_mock=True, db_path=temp_chroma_db)
+    indexer.index_chunks(chunks)
+    searcher = HybridSearcher(vector_indexer=indexer, chunks_data=chunks)
+
+    results = searcher.search("Texto", top_k=2, recency_boost=True)
+    assert len(results) == 2
+    assert all(r["recency_score"] == 0.0 for r in results)
+    assert all(r["recency_boost"] == 0.0 for r in results)
+
+
+def test_adv_round2_parse_date_spanish_and_multilingual():
+    """Adversarial Test (Round 2): Full Spanish and Latin American month formats parsing."""
+    import datetime
+    assert parse_date_value("24 de diciembre de 2026") == datetime.datetime(2026, 12, 24)
+    assert parse_date_value("15 de enero de 2026") == datetime.datetime(2026, 1, 15)
+    assert parse_date_value("10 de febrero de 2026") == datetime.datetime(2026, 2, 10)
+    assert parse_date_value("20 de marzo de 2026") == datetime.datetime(2026, 3, 20)
+    assert parse_date_value("1 de mayo de 2026") == datetime.datetime(2026, 5, 1)
+    assert parse_date_value("18 de junio de 2026") == datetime.datetime(2026, 6, 18)
+    assert parse_date_value("25 de julio de 2026") == datetime.datetime(2026, 7, 25)
+    assert parse_date_value("30 de septiembre de 2026") == datetime.datetime(2026, 9, 30)
+    assert parse_date_value("30 de setiembre de 2026") == datetime.datetime(2026, 9, 30)
+    assert parse_date_value("12 de octubre de 2026") == datetime.datetime(2026, 10, 12)
+    assert parse_date_value("15 de noviembre de 2026") == datetime.datetime(2026, 11, 15)
+    assert parse_date_value("Dic/2026") == datetime.datetime(2026, 12, 1)
+    assert parse_date_value("14-Dic-2026") == datetime.datetime(2026, 12, 14)
+    assert parse_date_value("14/Dic/2026") == datetime.datetime(2026, 12, 14)
+
+
+def test_adv_round2_parse_date_quarters_and_semesters():
+    """Adversarial Test (Round 2): Financial quarters and semesters parsing."""
+    import datetime
+    assert parse_date_value("Q1 2026") == datetime.datetime(2026, 1, 1)
+    assert parse_date_value("Q2 2026") == datetime.datetime(2026, 4, 1)
+    assert parse_date_value("Q3 2026") == datetime.datetime(2026, 7, 1)
+    assert parse_date_value("Q4 2026") == datetime.datetime(2026, 10, 1)
+    assert parse_date_value("1T 2026") == datetime.datetime(2026, 1, 1)
+    assert parse_date_value("3T 2026") == datetime.datetime(2026, 7, 1)
+    assert parse_date_value("1º Trimestre de 2026") == datetime.datetime(2026, 1, 1)
+    assert parse_date_value("2º Semestre de 2026") == datetime.datetime(2026, 7, 1)
+    assert parse_date_value("1S 2026") == datetime.datetime(2026, 1, 1)
+    assert parse_date_value("2S 2026") == datetime.datetime(2026, 7, 1)
+
+
+def test_adv_round2_parse_date_float_and_small_numbers():
+    """Adversarial Test (Round 2): Float years, zero, small integers, numpy datatypes."""
+    import datetime
+    import numpy as np
+
+    assert parse_date_value(2025.0) == datetime.datetime(2025, 1, 1)
+    assert parse_date_value(np.float64(2026.0)) == datetime.datetime(2026, 1, 1)
+    assert parse_date_value(np.int64(2026)) == datetime.datetime(2026, 1, 1)
+    assert parse_date_value("2026.0") == datetime.datetime(2026, 1, 1)
+
+    # 0, 42 and small numbers are NOT valid dates -> None
+    assert parse_date_value(0) is None
+    assert parse_date_value(42) is None
+    assert parse_date_value("0") is None
+    assert parse_date_value("42") is None
+
+    # numpy datetime64
+    assert parse_date_value(np.datetime64("2026-08-14")) == datetime.datetime(2026, 8, 14)
+
+
+def test_adv_round2_init_string_boolean_sanitization(temp_chroma_db, mock_chunks):
+    """Adversarial Test (Round 2): HybridSearcher and GroundedQAAgent __init__ with string booleans."""
+    indexer = VectorIndexer(use_mock=True, db_path=temp_chroma_db)
+    indexer.index_chunks(mock_chunks)
+
+    # HybridSearcher constructor
+    s_false = HybridSearcher(vector_indexer=indexer, chunks_data=mock_chunks, recency_boost="false")
+    assert s_false.recency_boost is False
+
+    s_zero = HybridSearcher(vector_indexer=indexer, chunks_data=mock_chunks, recency_boost="0")
+    assert s_zero.recency_boost is False
+
+    s_off = HybridSearcher(vector_indexer=indexer, chunks_data=mock_chunks, recency_boost="off")
+    assert s_off.recency_boost is False
+
+    s_true = HybridSearcher(vector_indexer=indexer, chunks_data=mock_chunks, recency_boost="true")
+    assert s_true.recency_boost is True
+
+    s_weight = HybridSearcher(vector_indexer=indexer, chunks_data=mock_chunks, recency_boost="0.35")
+    assert s_weight.recency_boost is True
+    assert s_weight.recency_weight == pytest.approx(0.35)
+
+    # GroundedQAAgent constructor
+    reranker = ReRanker(method="hybrid_fusion")
+    qa_false = GroundedQAAgent(indexer=indexer, searcher=s_false, reranker=reranker, recency_boost="false")
+    assert qa_false.recency_boost is False
+
+    qa_weight = GroundedQAAgent(indexer=indexer, searcher=s_false, reranker=reranker, recency_boost=0.28)
+    assert qa_weight.recency_boost is True
+    assert qa_weight.recency_weight == pytest.approx(0.28)
+
+
+def test_adv_round2_calculate_recency_score_nan_inf_protection():
+    """Adversarial Test (Round 2): calculate_recency_score never returns NaN or Inf with broken min/max."""
+    assert calculate_recency_score("Agosto de 2026", float("nan"), 1786665600.0) == 1.0
+    assert calculate_recency_score("Agosto de 2026", 1700000000.0, float("inf")) == 1.0
+    assert calculate_recency_score("Agosto de 2026", float("-inf"), float("inf")) == 1.0
+    assert calculate_recency_score(float("nan"), 1700000000.0, 1786665600.0) == 0.0
+
+
+def test_adv_round3_parse_date_multilingual_connectors_and_ordinals():
+    """Adversarial Test (Round 3): Multilingual connectors ('del', 'of', 'vom', \"d'\"), ordinals, German/French months."""
+    import datetime
+
+    # Spanish with 'del'
+    assert parse_date_value("14 de agosto del 2026") == datetime.datetime(2026, 8, 14)
+    assert parse_date_value("24 de diciembre del 2026") == datetime.datetime(2026, 12, 24)
+    assert parse_date_value("Agosto del 2026") == datetime.datetime(2026, 8, 1)
+
+    # English with 'of' and ordinals
+    assert parse_date_value("22nd of July 2026") == datetime.datetime(2026, 7, 22)
+    assert parse_date_value("3rd of March 2026") == datetime.datetime(2026, 3, 3)
+    assert parse_date_value("1st of August 2026") == datetime.datetime(2026, 8, 1)
+
+    # French and German formats
+    assert parse_date_value("1er aout 2026") == datetime.datetime(2026, 8, 1)
+    assert parse_date_value("14 d'aout 2026") == datetime.datetime(2026, 8, 14)
+    assert parse_date_value("14 vom August 2026") == datetime.datetime(2026, 8, 14)
+    assert parse_date_value("Oktober 2026") == datetime.datetime(2026, 10, 1)
+    assert parse_date_value("Dezember 2026") == datetime.datetime(2026, 12, 1)
+
+
+def test_adv_round3_extract_chunk_date_skips_empty_and_whitespace_strings(temp_chroma_db):
+    """Adversarial Test (Round 3): Chunks with empty or blank string dates at root fallback to nested doc_meta/metadata."""
+    chunks = [
+        {
+            "chunk_id": "BLANK_ROOT_DOC_META",
+            "text": "Texto com campo last_updated em branco na raiz",
+            "last_updated": "   ",
+            "doc_meta": {"last_updated": "14 de Agosto de 2026"},
+        },
+        {
+            "chunk_id": "EMPTY_ROOT_METADATA",
+            "text": "Texto com campo date vazio na raiz",
+            "date": "",
+            "metadata": {"published_at": "Janeiro de 2024"},
+        },
+    ]
+
+    indexer = VectorIndexer(use_mock=True, db_path=temp_chroma_db)
+    indexer.index_chunks(chunks)
+    searcher = HybridSearcher(vector_indexer=indexer, chunks_data=chunks)
+
+    results = searcher.search("Texto", top_k=2, recency_boost=True)
+    assert len(results) == 2
+    res_2026 = [r for r in results if r["chunk_id"] == "BLANK_ROOT_DOC_META"][0]
+    res_2024 = [r for r in results if r["chunk_id"] == "EMPTY_ROOT_METADATA"][0]
+
+    assert res_2026["recency_score"] == pytest.approx(1.0)
+    assert res_2024["recency_score"] == pytest.approx(0.0)
+    assert res_2026["hybrid_score"] > res_2024["hybrid_score"]
+
+
+def test_adv_round3_qa_agent_inherits_searcher_recency_config(temp_chroma_db, mock_chunks):
+    """Adversarial Test (Round 3): GroundedQAAgent inherits searcher recency boost setting by default."""
+    indexer = VectorIndexer(use_mock=True, db_path=temp_chroma_db)
+    indexer.index_chunks(mock_chunks)
+
+    # Searcher with recency_boost=True
+    searcher_on = HybridSearcher(vector_indexer=indexer, chunks_data=mock_chunks, recency_boost=True, recency_weight=0.22)
+    reranker = ReRanker(method="hybrid_fusion")
+
+    # QA Agent initialized without explicit recency_boost should inherit from searcher_on
+    agent_inherited = GroundedQAAgent(indexer=indexer, searcher=searcher_on, reranker=reranker)
+    assert agent_inherited.recency_boost is True
+    assert agent_inherited.recency_weight == pytest.approx(0.22)
+
+    # But explicit override in QA Agent constructor takes precedence
+    agent_override_off = GroundedQAAgent(indexer=indexer, searcher=searcher_on, reranker=reranker, recency_boost=False)
+    assert agent_override_off.recency_boost is False
+
+
+
+
