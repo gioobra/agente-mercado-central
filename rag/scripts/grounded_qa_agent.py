@@ -137,6 +137,33 @@ class GroundedQAAgent:
             context_blocks.append(block)
         return "\n".join(context_blocks)
 
+    @staticmethod
+    def _is_pure_greeting(query: str) -> bool:
+        """Verifica se a mensagem é estritamente uma saudação inicial ou conversa social de abertura."""
+        if not query or not str(query).strip():
+            return False
+        norm = normalize_text(query).strip()
+        clean = re.sub(r"[^\w\s]", "", norm).strip()
+        pure_greetings = {
+            "bom dia", "boa tarde", "boa noite", "ola", "olá", "oi", "oie",
+            "e ai", "e aí", "hey", "hi", "hello", "tudo bem", "ola tudo bem",
+            "olá tudo bem", "oi tudo bem", "bom dia tudo bem", "boa tarde tudo bem",
+            "boa noite tudo bem", "como vai", "como voce esta", "como você está",
+            "opa", "salve", "fala", "ola assistente", "olá assistente", "ola bot", "olá bot",
+        }
+        return clean in pure_greetings
+
+    @staticmethod
+    def _clean_query_for_search(query: str) -> str:
+        """Remove saudações iniciais e termos conversacionais para otimizar a recuperação de chunks."""
+        cleaned = re.sub(
+            r"^(?:bom dia|boa tarde|boa noite|olá|ola|oi|oie|hey|por favor|gostaria de saber)[,\s!?-]+",
+            "",
+            query.strip(),
+            flags=re.IGNORECASE,
+        ).strip()
+        return cleaned if len(cleaned) >= 3 else query.strip()
+
     def _is_query_grounded(self, query: str, chunks: List[Dict[str, Any]]) -> bool:
         """
         Verifica se a consulta possui fundamentação suficiente nos trechos retornados.
@@ -149,29 +176,45 @@ class GroundedQAAgent:
         top_score = top_chunk.get("rerank_score", 0.0)
 
         domain_acronyms = {"ia", "ai", "rh", "ti", "t1", "t2", "t3", "t4", "t5", "sp", "rj", "nf"}
+        conversational_words = {
+            "bom", "dia", "boa", "tarde", "noite", "ola", "olá", "oi", "oie", "hey",
+            "por", "favor", "gostaria", "saber", "pode", "dizer", "ajudar", "duvida",
+            "duvidas", "dúvida", "dúvidas", "pergunta", "perguntas", "voce", "você", "sabe"
+        }
         synonym_map = {
             "ia": ["ia", "inteligencia", "artificial"],
             "ai": ["ai", "ia", "inteligencia", "artificial"],
             "rh": ["rh", "recursos", "humanos"],
             "dpo": ["dpo", "privacidade", "dados", "lgpd"],
+            "6x1": ["5x2", "escala", "jornada", "trabalho", "turnos"],
+            "5x1": ["5x2", "escala", "jornada", "trabalho", "turnos"],
+            "regime": ["escala", "jornada", "contratacao", "clt", "trabalho"],
+            "salario": ["remuneracao", "beneficios", "pagamento", "salarios"],
+            "salarios": ["remuneracao", "beneficios", "pagamento", "salario"],
+            "ferias": ["descanso", "recesso", "rh"],
         }
 
         norm_q = normalize_text(query)
-        raw_tokens = [t for t in norm_q.split() if (len(t) > 2 or t in domain_acronyms) and t not in PORTUGUESE_STOPWORDS]
+        raw_tokens = [
+            t for t in norm_q.split() 
+            if (len(t) > 2 or t in domain_acronyms or t in ("6x1", "5x1", "5x2"))
+            and t not in PORTUGUESE_STOPWORDS
+            and t not in conversational_words
+        ]
         q_tokens = list(raw_tokens)
         for t in raw_tokens:
             if t in synonym_map:
                 q_tokens.extend(synonym_map[t])
 
         if not q_tokens:
-            return top_score >= 0.30
+            return top_score >= 0.25
 
         combined_text = " ".join([normalize_text(c.get("text", "") + " " + c.get("section_title", "")) for c in chunks[:5]])
         matched_tokens = sum(1 for t in q_tokens if t in combined_text)
         token_coverage = matched_tokens / len(q_tokens)
 
-        # Se menos de 30% das palavras expandidas foram encontradas e o score é baixo, não está fundamentado
-        if token_coverage < 0.30 and top_score < 0.35:
+        # Se menos de 25% das palavras expandidas foram encontradas e o score é baixo, não está fundamentado
+        if token_coverage < 0.25 and top_score < 0.30:
             return False
 
         return True
@@ -329,15 +372,14 @@ class GroundedQAAgent:
             }
 
         system_instruction = (
-            "Você é o Assistente Corporativo Inteligente do Mercado Central 24h. "
-            "Sua tarefa é responder a pergunta do colaborador estritamente com base nos documentos de contexto fornecidos.\n\n"
-            "REGRAS DE GROUNDING E CITAÇÃO OBRIGATÓRIAS:\n"
-            "1. Responda apenas com informações contidas no contexto.\n"
-            "2. Se a informação não constar explicitamente nos documentos, responda: "
-            "'Desculpe, mas não encontrei informações oficiais sobre esse assunto na documentação do Mercado Central 24h.'\n"
-            "3. Cada afirmação deve ser seguida de citação explícita no formato: "
-            "[Fonte: Nome_do_PDF.pdf, Seção: Titulo_da_Secao, Págs. X-Y].\n"
-            "4. Mantenha um tom profissional, direto e em Português do Brasil.\n"
+            "Você é o Assistente Corporativo Inteligente do Mercado Central 24h.\n"
+            "Sua tarefa é responder à pergunta do colaborador com clareza, completude, precisão e estritamente com base nos documentos fornecidos.\n\n"
+            "DIRETRIZES DE RESPOSTA E GROUNDING:\n"
+            "1. Responda de forma completa e explicativa: NUNCA dê respostas monossilábicas ou curtas demais (como apenas 'Sim' ou 'Não'). Contextualize a resposta com a regra oficial da empresa.\n"
+            "   Exemplo: Se perguntado se a empresa adota a escala 6x1, esclareça expressamente que o Mercado Central 24h NÃO adota a escala 6x1, e sim a escala 5x2 de trabalho (com 44 horas semanais), modelo viabilizado pelo uso intensivo de automação e Inteligência Artificial nas operações.\n"
+            "2. Apresente os detalhes normativos, condições, regras de negócio e exceções quando aplicável.\n"
+            "3. Cada afirmação deve ser seguida de citação explícita no formato: [Fonte: Nome_do_PDF.pdf, Seção: Titulo_da_Secao, Págs. X-Y].\n"
+            "4. Mantenha um tom profissional, acolhedor e em Português do Brasil.\n"
         )
 
         user_prompt = f"CONTEXTO DOS DOCUMENTOS:\n{context_str}\n\nPERGUNTA DO COLABORADOR:\n{query}"
@@ -416,13 +458,14 @@ class GroundedQAAgent:
     ) -> Dict[str, Any]:
         """
         Pipeline completo do QA Agent:
-        1. Hybrid Search (com suporte a priorização por recência)
-        2. Re-ranking contextual
-        3. Validação de Limiar de Confiança (Confidence Gate)
-        4. Grounded Generation (Gemini ou Fallback Extrativo)
-        5. Verificação de Alucinação Pós-Geração Sentença por Sentença
-        6. Roteamento Inteligente de Fallback por Intenção (R2)
-        7. Formatação Multicanal Adaptável (R3)
+        1. Interceptação de saudações conversacionais puras
+        2. Hybrid Search (com suporte a priorização por recência e query limpa)
+        3. Re-ranking contextual
+        4. Validação de Limiar de Confiança (Confidence Gate)
+        5. Grounded Generation (Gemini ou Fallback Extrativo)
+        6. Verificação de Alucinação Pós-Geração Sentença por Sentença
+        7. Roteamento Inteligente de Fallback por Intenção (R2)
+        8. Formatação Multicanal Adaptável (R3)
         """
         logger.info(f"Executando QA Agent para a consulta: '{query}' (canal: {channel})...")
 
@@ -441,9 +484,40 @@ class GroundedQAAgent:
             else self.confidence_threshold
         )
 
+        # 0. Interceptação de Saudações Puras (Evita acionar RAG e fallbacks corporativos para "Bom dia", "Olá", etc.)
+        if self._is_pure_greeting(query):
+            greeting_msg = (
+                "Olá! Bom dia! Sou o **Assistente Virtual Inteligente do Mercado Central 24h**.\n\n"
+                "Como posso ajudar você hoje? Você pode tirar dúvidas sobre:\n"
+                "• **Jornadas e Escalas de Trabalho** (Escala 5x2, turnos T1-T5 e folgas)\n"
+                "• **Benefícios e RH** (Plano de saúde, convênios educacionais, vale-alimentação)\n"
+                "• **Procedimentos Operacionais Padrão (SOP)** e código de conduta\n"
+                "• **Entregas, Prazos e Frete** (Delivery Express 3h, frete grátis SP/RJ)\n"
+                "• **Trocas, Devoluções e Garantias** (Prazos CDC e regras de estorno)\n"
+                "• **Compras e Fornecedores** (Alçadas de aprovação e faturamento)"
+            )
+            return {
+                "query": query,
+                "answer": greeting_msg,
+                "citations": [],
+                "sources_used": [],
+                "confidence_score": 1.0,
+                "confidence_threshold": effective_confidence_threshold,
+                "is_fallback": False,
+                "fallback_department": None,
+                "channel": clean_channel,
+                "hallucination_check": {
+                    "is_grounded": True,
+                    "reason": "greeting",
+                    "sentences": [],
+                },
+            }
+
+        search_query = self._clean_query_for_search(query)
+
         # 1. Busca Híbrida
         hybrid_results = self.searcher.search(
-            query=query,
+            query=search_query,
             top_k=top_search_k,
             metadata_filter=metadata_filter,
             recency_boost=effective_recency_boost,

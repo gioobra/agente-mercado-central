@@ -88,14 +88,26 @@ def extract_tldr_and_details(raw_text: str) -> Tuple[str, str]:
             if not details:
                 details = tldr
             return tldr, details
-        # Caso contrário, primeira sentença vira tldr e o restante vira details
+        # Caso contrário, divide por sentenças
         sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", first_block) if s.strip()]
         if len(sentences) > 1:
-            return sentences[0], "\n".join(sentences[1:])
+            first_sent = sentences[0]
+            # Se a primeira sentença for muito curta (ex: "Não.", "Sim.", "Correto."), junta com a próxima
+            if len(first_sent.split()) <= 4 and len(sentences) > 1:
+                tldr = f"{first_sent} {sentences[1]}".strip()
+                details = "\n".join(sentences[2:]).strip() if len(sentences) > 2 else tldr
+                return tldr, details
+            return first_sent, "\n".join(sentences[1:]).strip()
         return first_block, first_block
 
     tldr = paragraphs[0]
-    details = "\n\n".join(paragraphs[1:])
+    # Se o primeiro parágrafo for muito curto (ex: "Não."), junta com o próximo
+    if len(tldr.split()) <= 4 and len(paragraphs) > 1:
+        tldr = f"{tldr} {paragraphs[1]}".strip()
+        details = "\n\n".join(paragraphs[2:]).strip() if len(paragraphs) > 2 else tldr
+    else:
+        details = "\n\n".join(paragraphs[1:]).strip() if len(paragraphs) > 1 else tldr
+
     return tldr, details
 
 

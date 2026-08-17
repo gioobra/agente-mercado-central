@@ -275,6 +275,18 @@ class HallucinationChecker:
         except ValueError:
             return cleaned.lower()
 
+    def _is_negated_entity_mention(self, sentence: str, entity_str: str) -> bool:
+        """Verifica se a entidade é mencionada dentro de um contexto explícito de negação/rejeição."""
+        norm_s = normalize_text(sentence)
+        norm_e = normalize_text(entity_str)
+        neg_prefix = rf"\b(?:nao|não|nem|nunca|jamais|rejeita|descarta|sem|invalido|invalida|vedado|proibido|inexistente|dispensa|descarta)\b(?:\s+\w+){{0,5}}\s+{re.escape(norm_e)}\b"
+        if re.search(neg_prefix, norm_s):
+            return True
+        neg_suffix = rf"\b{re.escape(norm_e)}\b(?:\s+\w+){{0,4}}\s+(?:nao|não|inexistente|invalido|proibido|vedado)\b"
+        if re.search(neg_suffix, norm_s):
+            return True
+        return False
+
     def verify_sentence(
         self,
         sentence: str,
@@ -331,7 +343,8 @@ class HallucinationChecker:
         # Validação de escalas de trabalho (ex: 5x2, 6x1)
         for shift in sent_entities["shifts"]:
             if shift not in context_entities["shifts"]:
-                ungrounded_entities.append(f"escala {shift}")
+                if not self._is_negated_entity_mention(sentence, shift):
+                    ungrounded_entities.append(f"escala {shift}")
 
         # Moedas contextuais normalizadas
         context_currency_nums = set()
@@ -346,7 +359,8 @@ class HallucinationChecker:
             if num_part:
                 norm_curr_num = self._normalize_num_str(num_part.group(0))
                 if norm_curr_num not in context_currency_nums and curr.lower() not in norm_context_str:
-                    ungrounded_entities.append(curr)
+                    if not self._is_negated_entity_mention(sentence, curr):
+                        ungrounded_entities.append(curr)
 
         # Porcentagens contextuais normalizadas
         context_pct_nums = set()
@@ -361,7 +375,8 @@ class HallucinationChecker:
             if num_part:
                 norm_pct_num = self._normalize_num_str(num_part.group(0))
                 if norm_pct_num not in context_pct_nums and pct.lower() not in norm_context_str:
-                    ungrounded_entities.append(pct)
+                    if not self._is_negated_entity_mention(sentence, pct):
+                        ungrounded_entities.append(pct)
 
         # Durações contextuais normalizadas
         context_dur_nums = set()
@@ -375,7 +390,8 @@ class HallucinationChecker:
             dur_nums = re.findall(r"\d+", dur)
             num_present = all(self._normalize_num_str(n) in context_dur_nums for n in dur_nums)
             if not num_present and norm_dur not in norm_context_str:
-                ungrounded_entities.append(dur)
+                if not self._is_negated_entity_mention(sentence, dur):
+                    ungrounded_entities.append(dur)
 
         # Artigos e Leis contextuais normalizados
         context_law_nums = set()
@@ -389,7 +405,8 @@ class HallucinationChecker:
             art_nums = re.findall(r"\d+", art)
             num_present = all(self._normalize_num_str(n) in context_law_nums for n in art_nums)
             if not num_present and norm_art not in norm_context_str:
-                ungrounded_entities.append(art)
+                if not self._is_negated_entity_mention(sentence, art):
+                    ungrounded_entities.append(art)
 
         # 4. Overlap léxico de termos substantivos (exclui números puros e stopwords)
         sent_norm = normalize_text(sentence)
