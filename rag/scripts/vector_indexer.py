@@ -116,25 +116,30 @@ class GoogleGenAIEmbeddingFunction:
                         config={"output_dimensionality": 768},
                     )
                     if response and hasattr(response, "embeddings") and response.embeddings:
-                        batch_emb_values = [e.values for e in response.embeddings]
-                        self.model_name = model
-                        break
-                    elif response and hasattr(response, "embedding") and hasattr(response.embedding, "values"):
-                        batch_emb_values = [response.embedding.values]
-                        self.model_name = model
-                        break
+                        extracted = [e.values for e in response.embeddings]
+                        if len(extracted) == len(batch):
+                            batch_emb_values = extracted
+                            self.model_name = model
+                            break
                 except Exception as e:
                     logger.debug(f"Modelo {model} falhou em batch: {e}")
                     continue
 
-            if batch_emb_values is None:
-                logger.warning(
-                    "Nenhum modelo de embedding remoto do Google respondeu com sucesso. "
-                    "Alternando de forma transparente para MockEmbeddingFunction determinístico (768-dim)."
-                )
-                return self._fallback_embed_texts(input_texts)
+            # Se a API não retornou o número exato de embeddings para o batch, usa fallback local
+            if batch_emb_values is None or len(batch_emb_values) != len(batch):
+                logger.debug(f"Usando fallback determinístico para batch de {len(batch)} itens.")
+                batch_emb_values = self._fallback_embed_texts(batch)
 
             embeddings.extend(batch_emb_values)
+
+        # Garantia final absoluta de consistência 1-para-1
+        if len(embeddings) != len(input_texts):
+            logger.warning(
+                f"Inconsistência de tamanho detectada ({len(embeddings)} vs {len(input_texts)}). "
+                "Utilizando fallback local integral (768-dim)."
+            )
+            return self._fallback_embed_texts(input_texts)
+
         return embeddings
 
     def _fallback_embed_texts(self, input_texts: List[str]) -> List[List[float]]:
@@ -153,7 +158,7 @@ class VectorIndexer:
         db_path: Optional[str] = None,
         collection_name: str = "mercado_central_chunks",
         use_mock: bool = False,
-        embedding_model_name: str = "text-embedding-004",
+        embedding_model_name: str = "gemini-embedding-001",
     ) -> None:
         self.collection_name: str = collection_name
         self.db_path: Optional[str] = db_path
@@ -191,10 +196,16 @@ class VectorIndexer:
         )
 
     def get_embeddings(self, texts: List[str]) -> List[List[float]]:
-        """Gera embeddings para a lista de textos usando Google API ou Mock Local com fallback resiliente."""
+        """Gera embeddings para a lista de textos usando Google API ou Mock Local com garantia estrita de tamanho."""
+        if not texts:
+            return []
         if not self.use_mock and self.google_embedder and self.google_embedder.client:
             try:
-                return self.google_embedder.embed_texts(texts)
+                result = self.google_embedder.embed_texts(texts)
+                if result and len(result) == len(texts):
+                    return result
+                logger.warning(f"Tamanho de embeddings ({len(result)}) incompatível com ({len(texts)}). Usando Mock.")
+                return self.mock_embedder(texts)
             except Exception as e:
                 logger.warning(f"Erro na API de Embeddings do Google: {e}. Alternando para Mock Local (768-dim).")
                 return self.mock_embedder(texts)
