@@ -4,6 +4,7 @@
 
 services:
   app:
+    image: mercado-central-ia
     build:
       context: .
       dockerfile: Dockerfile
