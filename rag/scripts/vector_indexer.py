@@ -72,7 +72,7 @@ class GoogleGenAIEmbeddingFunction:
     Retorna vetores de 768 dimensões.
     """
 
-    def __init__(self, api_key: Optional[str] = None, model_name: str = "text-embedding-004") -> None:
+    def __init__(self, api_key: Optional[str] = None, model_name: str = "gemini-embedding-001") -> None:
         self.model_name: str = model_name
         self.api_key: Optional[str] = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
         self.client: Any = None
@@ -82,48 +82,59 @@ class GoogleGenAIEmbeddingFunction:
                 from google import genai
                 self.client = genai.Client(api_key=self.api_key)
                 logger.info(f"Google GenAI Client inicializado com modelo {self.model_name}.")
-            except (ImportError, ValueError, AttributeError, RuntimeError) as e:
+            except Exception as e:
                 logger.warning(f"Erro ao inicializar Google GenAI Client: {e}. Usando fallback local.")
                 self.client = None
         else:
             logger.info("Chave de API do Google não encontrada. Fallback ativo.")
 
     def embed_texts(self, input_texts: List[str]) -> List[List[float]]:
-        if not self.client:
+        if not self.client or not input_texts:
             return self._fallback_embed_texts(input_texts)
 
         embeddings: List[List[float]] = []
-        batch_size = 16
-        candidate_models = [self.model_name, "text-embedding-004", "models/text-embedding-004", "embedding-001"]
-        # Deduplica preservando ordem
+        batch_size = 32
+        candidate_models = [
+            self.model_name,
+            "gemini-embedding-001",
+            "models/gemini-embedding-001",
+            "gemini-embedding-2-preview",
+            "text-embedding-004",
+            "embedding-001",
+        ]
         candidate_models = list(dict.fromkeys(candidate_models))
 
         for i in range(0, len(input_texts), batch_size):
             batch = input_texts[i : i + batch_size]
-            for text in batch:
-                emb_values = None
-                for model in candidate_models:
-                    try:
-                        response = self.client.models.embed_content(
-                            model=model,
-                            contents=text,
-                        )
-                        if response and hasattr(response, "embedding") and hasattr(response.embedding, "values"):
-                            emb_values = response.embedding.values
-                            self.model_name = model  # Trava no modelo que respondeu com sucesso
-                            break
-                    except Exception as e:
-                        logger.debug(f"Modelo {model} falhou: {e}")
-                        continue
+            batch_emb_values = None
 
-                if emb_values is None:
-                    logger.warning(
-                        "Nenhum modelo de embedding remoto do Google respondeu com sucesso. "
-                        "Alternando de forma transparente para MockEmbeddingFunction determinístico (768-dim)."
+            for model in candidate_models:
+                try:
+                    response = self.client.models.embed_content(
+                        model=model,
+                        contents=batch,
+                        config={"output_dimensionality": 768},
                     )
-                    return self._fallback_embed_texts(input_texts)
+                    if response and hasattr(response, "embeddings") and response.embeddings:
+                        batch_emb_values = [e.values for e in response.embeddings]
+                        self.model_name = model
+                        break
+                    elif response and hasattr(response, "embedding") and hasattr(response.embedding, "values"):
+                        batch_emb_values = [response.embedding.values]
+                        self.model_name = model
+                        break
+                except Exception as e:
+                    logger.debug(f"Modelo {model} falhou em batch: {e}")
+                    continue
 
-                embeddings.append(emb_values)
+            if batch_emb_values is None:
+                logger.warning(
+                    "Nenhum modelo de embedding remoto do Google respondeu com sucesso. "
+                    "Alternando de forma transparente para MockEmbeddingFunction determinístico (768-dim)."
+                )
+                return self._fallback_embed_texts(input_texts)
+
+            embeddings.extend(batch_emb_values)
         return embeddings
 
     def _fallback_embed_texts(self, input_texts: List[str]) -> List[List[float]]:

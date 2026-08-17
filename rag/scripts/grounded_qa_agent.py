@@ -69,7 +69,7 @@ class GroundedQAAgent:
         indexer: VectorIndexer,
         searcher: HybridSearcher,
         reranker: ReRanker,
-        model_name: str = "gemini-2.5-flash",
+        model_name: str = "gemini-flash-latest",
         recency_boost: Optional[Union[bool, float, str]] = None,
         recency_weight: Optional[float] = None,
         confidence_threshold: float = 0.35,
@@ -342,7 +342,16 @@ class GroundedQAAgent:
 
         user_prompt = f"CONTEXTO DOS DOCUMENTOS:\n{context_str}\n\nPERGUNTA DO COLABORADOR:\n{query}"
 
-        candidate_models = [self.model_name, "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+        candidate_models = [
+            self.model_name,
+            "gemini-3.6-flash",
+            "gemini-flash-latest",
+            "gemini-3.5-flash-lite",
+            "gemini-3.6-pro",
+            "gemini-2.5-flash",
+            "gemini-2.0-flash",
+            "gemini-1.5-flash",
+        ]
         candidate_models = list(dict.fromkeys(candidate_models))
 
         answer_text = None
