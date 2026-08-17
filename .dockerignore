@@ -1,0 +1,52 @@
+# ==============================================================================
+# Mercado Central 24h — Docker Ignore
+# Arquivos e diretórios que NÃO devem ser copiados para a imagem Docker
+# ==============================================================================
+
+# Git
+.git
+
+# Python
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# IDE
+.vscode/
+.idea/
+*.sublime-*
+
+# Ambiente
+.env
+.env.local
+.env.*.local
+
+# Bancos vetoriais locais (recriados em runtime)
+rag/data/vector_store/
+chroma_db/
+.chroma/
+
+# Agentes temporários do Antigravity
+.agents/
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Documentação interna de desenvolvimento
+RELATORIO_AUDITORIA.md
+TEST_INFRA.md
+TEST_READY.md
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
+*.tmp
+*.log
+*.bak
+*.swp
+*~

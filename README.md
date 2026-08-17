@@ -8,10 +8,15 @@ Repositório corporativo contendo a documentação oficial em PDF e o pipeline d
 
 ```text
 MercadoCentral/
-├── .gitignore                 # Configuração de arquivos e diretórios ignorados pelo Git
+├── .dockerignore              # Exclusões para build da imagem Docker
+├── .gitignore                 # Configuração de arquivos ignorados pelo Git
+├── Dockerfile                 # Imagem Docker multi-stage (Python 3.12 + Streamlit)
+├── docker-compose.yml         # Orquestração Docker com persistência de dados
 ├── PROJECT.md                 # Especificação arquitetural, roadmap e contratos do projeto
 ├── README.md                  # Documentação principal do repositório
 ├── RELATORIO_AUDITORIA.md     # Relatório consolidado de auditoria e dívida técnica
+├── TEST_INFRA.md              # Documentação de infraestrutura de testes
+├── TEST_READY.md              # Checklist de prontidão de testes
 ├── app.py                     # Interface Web Streamlit (Chat do Colaborador)
 ├── pytest.ini                 # Configurações de execução do Pytest
 ├── requirements.txt           # Especificação de dependências Python do projeto
@@ -42,13 +47,16 @@ MercadoCentral/
     └── tests/                 # Suíte de Testes Automatizados (326 testes)
         ├── __init__.py        # Inicialização do pacote rag.tests
         ├── conftest.py        # Fixtures compartilhadas do Pytest
+        ├── test_adversarial_challenge_final.py # Testes adversariais finais de robustez
         ├── test_adversarial_tier5.py # Testes de robustez adversarial e limites
-        ├── test_e2e_scenarios.py # Testes integrados de cenários de negócios ponta a ponta
+        ├── test_corporate_routing.py # Testes de roteamento de contatos corporativos
+        ├── test_e2e_enhancements.py  # Testes de melhorias ponta a ponta
+        ├── test_e2e_scenarios.py     # Testes integrados de cenários de negócios
         ├── test_hallucination_and_confidence.py # Testes de limiares e anti-alucinação
-        ├── test_m1_adversarial.py # Testes de consistência sentencial e grounding
-        ├── test_multichannel_and_catalog.py # Testes de catálogo e formatação multicanal
-        ├── test_pdf_processor.py # Suíte dedicada de testes unitários do processador de PDFs
-        └── test_rag_pipeline.py  # Testes unitários do pipeline RAG, indexador e reranker
+        ├── test_m1_adversarial.py    # Testes de consistência sentencial e grounding
+        ├── test_multichannel_formatting.py # Testes de formatação multicanal
+        ├── test_pdf_processor.py     # Suíte dedicada de testes do processador de PDFs
+        └── test_rag_pipeline.py      # Testes unitários do pipeline RAG e reranker
 ```
 
 ---
@@ -101,6 +109,43 @@ Antes de configurar o ambiente Python, certifique-se de que o sistema atende aos
 
 ---
 
+## 🐳 Execução com Docker
+
+A forma mais simples de executar o projeto completo sem precisar configurar Python, venv ou dependências manualmente:
+
+### Com Docker Compose (recomendado):
+```bash
+# Build e execução
+docker compose up --build
+
+# Para rodar em segundo plano:
+docker compose up --build -d
+```
+
+### Com Docker puro:
+```bash
+# Build da imagem
+docker build -t mercado-central-ia .
+
+# Execução do container
+docker run -p 8501:8501 --name mercado-central-ia mercado-central-ia
+```
+
+### Com chave de API do Gemini (opcional):
+```bash
+# Via Docker Compose
+GEMINI_API_KEY=sua_chave_aqui docker compose up --build
+
+# Via Docker puro
+docker run -p 8501:8501 -e GEMINI_API_KEY=sua_chave_aqui mercado-central-ia
+```
+
+Acesse a aplicação em: **http://localhost:8501**
+
+> **Nota:** Sem a `GEMINI_API_KEY`, o agente opera em modo extrativo de fallback (respostas geradas diretamente a partir dos trechos recuperados, sem LLM generativa).
+
+---
+
 ## 🧪 Execução dos Testes Automatizados
 
 A suíte de testes do repositório garante a cobertura de integridade de ingestão de PDFs, indexação no ChromaDB, busca híbrida, reranking e cenários operacionais de negócio.
@@ -117,9 +162,13 @@ pytest rag/tests/ -v
 ```
 
 ### Componentes de Teste:
-- `rag/tests/test_pdf_processor.py`: Suíte unitária dedicada ao processador de PDFs (validação do `pdftotext`, limpeza de ruídos, marcação de seções, chunking e suporte a `pathlib.Path`).
-- `rag/tests/test_rag_pipeline.py`: Testes unitários de importações de pacote, índice vetorial ChromaDB, validação de chunks vazios, busca híbrida (ChromaDB + BM25) e reranker RRF.
-- `rag/tests/test_e2e_scenarios.py`: Testes integrados de cenários corporativos (escala 5x2, regras do Cliente VIP Central, prazos de devolução CDC e SLAs de entrega).
+- `test_pdf_processor.py`: Suíte unitária dedicada ao processador de PDFs (validação do `pdftotext`, limpeza de ruídos, marcação de seções, chunking e suporte a `pathlib.Path`).
+- `test_rag_pipeline.py`: Testes unitários de importações de pacote, índice vetorial ChromaDB, validação de chunks vazios, busca híbrida (ChromaDB + BM25) e reranker RRF.
+- `test_e2e_scenarios.py` / `test_e2e_enhancements.py`: Testes integrados de cenários corporativos (escala 5x2, regras do Cliente VIP Central, prazos de devolução CDC e SLAs de entrega).
+- `test_adversarial_tier5.py` / `test_adversarial_challenge_final.py` / `test_m1_adversarial.py`: Testes adversariais de robustez, limites e consistência de grounding.
+- `test_hallucination_and_confidence.py`: Testes de limiares de confiança e controle anti-alucinação.
+- `test_corporate_routing.py`: Testes de roteamento de fallback para departamentos corporativos.
+- `test_multichannel_formatting.py`: Testes de formatação de respostas multicanal (Chat, E-mail, Teams/Slack).
 
 ---
 
@@ -164,25 +213,25 @@ Os scripts em `rag/scripts/` formam um pacote modular. Você pode executar cada 
 O projeto inclui uma interface web conversacional moderna, rápida e intuitiva dedicada aos colaboradores do Mercado Central 24h:
 
 ### Recursos da Interface:
-- 💬 **Chat Web com Histórico de Conversa**: Contexto contínuo durante a sessão e botão para reiniciar conversa.
+- 💬 **Chat Web com Histórico de Conversas**: Múltiplas sessões de conversa com contexto contínuo e alternância instantânea entre threads.
 - 🤖 **Aviso de Transparência de IA**: Identificação clara de que se trata de um assistente virtual baseado em IA generativa e RAG.
 - 📚 **Visualização de Fontes**: Expander em cada resposta detalhando o documento PDF, seção e páginas exatas consultadas.
+- 🧠 **Recuperação Adaptativa**: Seleção inteligente de 2 a 8 fontes conforme a complexidade da pergunta.
 - 👍/👎 **Botão de Feedback**: Avaliação nativa em cada resposta da IA com feedback instantâneo.
 - ⚙️ **Configurações e Filtros**:
   - Seleção de canal de formatação: Chat, E-mail Corporativo Formal, Teams / Slack.
   - Filtro por departamento/categoria de documento.
   - Toggle de boost temporal para priorizar normas recentes.
-  - Ajuste dinâmico do limiar de confiança (`confidence_threshold`).
-- 📞 **Catálogo Rápido de Contatos**: Acesso direto a e-mails e SLAs de RH, Jurídico, DPO, Compras, SAC e Ouvidoria.
 
 ### Como Executar a Aplicação Web:
 
 ```bash
-# Ative o ambiente virtual
+# Com ambiente virtual (desenvolvimento local)
 source venv/bin/activate
-
-# Inicie o servidor Streamlit
 streamlit run app.py
+
+# Com Docker (recomendado para produção)
+docker compose up --build
 ```
 
 A aplicação será aberta automaticamente no seu navegador padrão em `http://localhost:8501`.
