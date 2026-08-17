@@ -9,7 +9,9 @@ Repositório corporativo contendo a documentação oficial em PDF e o pipeline d
 ```text
 MercadoCentral/
 ├── .dockerignore              # Exclusões para build da imagem Docker
+├── .env.example               # Modelo documentado de variáveis de ambiente
 ├── .gitignore                 # Configuração de arquivos ignorados pelo Git
+├── AUDIT_REPORT.md            # Relatório consolidado de auditoria arquitetural e testes (Nota A+)
 ├── Dockerfile                 # Imagem Docker multi-stage (Python 3.12 + Streamlit)
 ├── docker-compose.yml         # Orquestração Docker com persistência de dados
 ├── PROJECT.md                 # Especificação arquitetural, roadmap e contratos do projeto
@@ -106,6 +108,31 @@ Antes de configurar o ambiente Python, certifique-se de que o sistema atende aos
    pip install --upgrade pip
    pip install -r requirements.txt
    ```
+
+---
+
+## 🔑 Configuração de Variáveis de Ambiente (`.env`)
+
+O projeto pode ser executado em dois modos: **Online** (com LLM Gemini) ou **Offline** (100% gratuito e local, sem custos de API).
+
+### 1. Criar o arquivo `.env`:
+```bash
+cp .env.example .env
+```
+
+### 2. Configurar a Chave (Opcional):
+Abra o arquivo `.env` e adicione sua chave de API caso queira o modo generativo online:
+```env
+GEMINI_API_KEY=sua_chave_gemini_aqui
+```
+
+### 💡 Modos de Operação do Agente:
+- **Modo Online (com `GEMINI_API_KEY`)**:
+  - O agente utiliza o modelo oficial `text-embedding-004` (Google GenAI) e sintetiza respostas em linguagem natural com `gemini-2.5-flash`, mantendo as citações formais `[Fonte: ..., Pág. ...]`.
+  - Obtenha sua chave gratuita em: [Google AI Studio](https://aistudio.google.com/app/apikey).
+- **Modo Offline / Fallback (sem chave ou offline)**:
+  - Se a variável `GEMINI_API_KEY` estiver vazia ou ausente, o sistema ativa automaticamente o **MockEmbeddingFunction determinístico de 768 dimensões** e o **motor de geração extrativa com citação fática de fontes**.
+  - **Zero custo, zero dependência de rede e 100% funcional.**
 
 ---
 
