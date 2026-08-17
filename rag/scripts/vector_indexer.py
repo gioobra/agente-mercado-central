@@ -90,22 +90,46 @@ class GoogleGenAIEmbeddingFunction:
 
     def embed_texts(self, input_texts: List[str]) -> List[List[float]]:
         if not self.client:
-            raise RuntimeError("Google GenAI Client não está configurado.")
+            return self._fallback_embed_texts(input_texts)
 
         embeddings: List[List[float]] = []
-        # Process in batches to avoid API rate limits
         batch_size = 16
+        candidate_models = [self.model_name, "text-embedding-004", "models/text-embedding-004", "embedding-001"]
+        # Deduplica preservando ordem
+        candidate_models = list(dict.fromkeys(candidate_models))
+
         for i in range(0, len(input_texts), batch_size):
             batch = input_texts[i : i + batch_size]
             for text in batch:
-                response = self.client.models.embed_content(
-                    model=self.model_name,
-                    contents=text,
-                )
-                # Google text-embedding-004 returns embedding values list
-                emb_values = response.embedding.values
+                emb_values = None
+                for model in candidate_models:
+                    try:
+                        response = self.client.models.embed_content(
+                            model=model,
+                            contents=text,
+                        )
+                        if response and hasattr(response, "embedding") and hasattr(response.embedding, "values"):
+                            emb_values = response.embedding.values
+                            self.model_name = model  # Trava no modelo que respondeu com sucesso
+                            break
+                    except Exception as e:
+                        logger.debug(f"Modelo {model} falhou: {e}")
+                        continue
+
+                if emb_values is None:
+                    logger.warning(
+                        "Nenhum modelo de embedding remoto do Google respondeu com sucesso. "
+                        "Alternando de forma transparente para MockEmbeddingFunction determinístico (768-dim)."
+                    )
+                    return self._fallback_embed_texts(input_texts)
+
                 embeddings.append(emb_values)
         return embeddings
+
+    def _fallback_embed_texts(self, input_texts: List[str]) -> List[List[float]]:
+        """Gera embeddings locais determinísticos de 768 dimensões como fallback seguro."""
+        fallback_fn = MockEmbeddingFunction(dimension=768)
+        return fallback_fn(input_texts)
 
 
 class VectorIndexer:
@@ -143,7 +167,7 @@ class VectorIndexer:
                 if not self.google_embedder.client:
                     logger.info("Google API indisponível/sem chave. Alternando para MockEmbeddingFunction (768-dim).")
                     self.use_mock = True
-            except (ImportError, ValueError, AttributeError, RuntimeError) as e:
+            except Exception as e:
                 logger.warning(f"Falha ao carregar GoogleGenAIEmbeddingFunction: {e}. Usando mock local.")
                 self.use_mock = True
         else:
@@ -156,12 +180,12 @@ class VectorIndexer:
         )
 
     def get_embeddings(self, texts: List[str]) -> List[List[float]]:
-        """Gera embeddings para a lista de textos usando Google API ou Mock Local."""
+        """Gera embeddings para a lista de textos usando Google API ou Mock Local com fallback resiliente."""
         if not self.use_mock and self.google_embedder and self.google_embedder.client:
             try:
                 return self.google_embedder.embed_texts(texts)
-            except (RuntimeError, AttributeError, ValueError) as e:
-                logger.error(f"Erro na API de Embeddings do Google: {e}. Alternando para Mock Local.")
+            except Exception as e:
+                logger.warning(f"Erro na API de Embeddings do Google: {e}. Alternando para Mock Local (768-dim).")
                 return self.mock_embedder(texts)
         else:
             return self.mock_embedder(texts)

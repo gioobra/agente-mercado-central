@@ -342,45 +342,57 @@ class GroundedQAAgent:
 
         user_prompt = f"CONTEXTO DOS DOCUMENTOS:\n{context_str}\n\nPERGUNTA DO COLABORADOR:\n{query}"
 
-        try:
-            response = self.genai_client.models.generate_content(
-                model=self.model_name,
-                contents=user_prompt,
-                config={"system_instruction": system_instruction},
-            )
-            answer_text = response.text.strip()
+        candidate_models = [self.model_name, "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+        candidate_models = list(dict.fromkeys(candidate_models))
 
-            citations: List[Dict[str, Any]] = []
-            sources_used: List[Dict[str, Any]] = []
-            for c in reranked_chunks:
-                p_start = c.get("page_start", 1)
-                p_end = c.get("page_end", 1)
-                page_str = f"Pág. {p_start}" if p_start == p_end else f"Págs. {p_start}-{p_end}"
+        answer_text = None
+        for model in candidate_models:
+            try:
+                response = self.genai_client.models.generate_content(
+                    model=model,
+                    contents=user_prompt,
+                    config={"system_instruction": system_instruction},
+                )
+                if response and hasattr(response, "text") and response.text:
+                    answer_text = response.text.strip()
+                    self.model_name = model  # Trava no modelo que respondeu com sucesso
+                    break
+            except Exception as model_err:
+                logger.debug(f"Modelo generativo {model} falhou: {model_err}")
+                continue
 
-                citations.append({
-                    "file_name": c.get("file_name"),
-                    "section_title": c.get("section_title"),
-                    "page_range": page_str,
-                    "chunk_id": c.get("chunk_id"),
-                })
-                sources_used.append({
-                    "chunk_id": c.get("chunk_id"),
-                    "file_name": c.get("file_name"),
-                    "section_title": c.get("section_title"),
-                    "page_start": p_start,
-                    "page_end": p_end,
-                    "rerank_score": c.get("rerank_score"),
-                })
-
-            return {
-                "query": query,
-                "answer": answer_text,
-                "citations": citations,
-                "sources_used": sources_used,
-            }
-        except Exception as e:
-            logger.error(f"Erro na chamada Gemini LLM: {e}. Executando fallback extrativo.")
+        if not answer_text:
+            logger.warning("Nenhum modelo Gemini generativo respondeu. Executando fallback extrativo.")
             return self._generate_extractive_answer(query, reranked_chunks)
+
+        citations: List[Dict[str, Any]] = []
+        sources_used: List[Dict[str, Any]] = []
+        for c in reranked_chunks:
+            p_start = c.get("page_start", 1)
+            p_end = c.get("page_end", 1)
+            page_str = f"Pág. {p_start}" if p_start == p_end else f"Págs. {p_start}-{p_end}"
+
+            citations.append({
+                "file_name": c.get("file_name"),
+                "section_title": c.get("section_title"),
+                "page_range": page_str,
+                "chunk_id": c.get("chunk_id"),
+            })
+            sources_used.append({
+                "chunk_id": c.get("chunk_id"),
+                "file_name": c.get("file_name"),
+                "section_title": c.get("section_title"),
+                "page_start": p_start,
+                "page_end": p_end,
+                "rerank_score": c.get("rerank_score"),
+            })
+
+        return {
+            "query": query,
+            "answer": answer_text,
+            "citations": citations,
+            "sources_used": sources_used,
+        }
 
     def answer(
         self,
