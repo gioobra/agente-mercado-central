@@ -4,6 +4,21 @@ Repositório corporativo contendo a documentação oficial em PDF e o pipeline d
 
 ---
 
+## 🌐 Demonstração Online (Live Demo em Nuvem)
+
+A aplicação está disponível e rodando em ambiente de produção em nuvem com criptografia SSL/HTTPS:
+
+👉 **[https://140.238.183.15.sslip.io](https://140.238.183.15.sslip.io)**
+
+### 🏗️ Arquitetura de Nuvem e Infraestrutura:
+- **Cloud Provider (OCI)**: Hospedado em instância Compute da **Oracle Cloud Infrastructure (OCI)** (Always Free).
+- **Segurança & SSL/TLS**: Certificado SSL/TLS emitido via **Let's Encrypt (Certbot)** com domínio automatizado `sslip.io`.
+- **Proxy Reverso (Nginx)**: Servidor **Nginx** configurado com suporte bidirecional a WebSockets e repasse seguro de cabeçalhos de rede.
+- **Motor Generativo (LLM)**: Integrado à **Google Gemini API** (`gemini-3.6-flash` para síntese e `gemini-embedding-001` para embeddings 768-dim), com **fallback determinístico offline** automático.
+- **Contêinerização**: Deploy automatizado via **Docker & Docker Compose** com volume persistente para a base vetorial ChromaDB.
+
+---
+
 ## 📁 Estrutura do Repositório
 
 ```text
@@ -128,11 +143,11 @@ GEMINI_API_KEY=sua_chave_gemini_aqui
 
 ### 💡 Modos de Operação do Agente:
 - **Modo Online (com `GEMINI_API_KEY`)**:
-  - O agente utiliza o modelo oficial `text-embedding-004` (Google GenAI) e sintetiza respostas em linguagem natural com `gemini-2.5-flash`, mantendo as citações formais `[Fonte: ..., Pág. ...]`.
+  - O agente utiliza o modelo oficial `gemini-embedding-001` (com vetor de 768 dimensões) e sintetiza respostas em linguagem natural com `gemini-3.6-flash`, mantendo as citações formais `[Fonte: ..., Pág. ...]`.
   - Obtenha sua chave gratuita em: [Google AI Studio](https://aistudio.google.com/app/apikey).
 - **Modo Offline / Fallback (sem chave ou offline)**:
-  - Se a variável `GEMINI_API_KEY` estiver vazia ou ausente, o sistema ativa automaticamente o **MockEmbeddingFunction determinístico de 768 dimensões** e o **motor de geração extrativa com citação fática de fontes**.
-  - **Zero custo, zero dependência de rede e 100% funcional.**
+  - Se a variável `GEMINI_API_KEY` estiver vazia, ausente ou exceder cotas temporárias da API, o sistema ativa automaticamente o **MockEmbeddingFunction determinístico de 768 dimensões** e o **motor de geração extrativa com citação fática de fontes**.
+  - **Zero custo, zero risco de indisponibilidade e 100% funcional.**
 
 ---
 
