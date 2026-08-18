@@ -128,14 +128,9 @@ MercadoCentral/
 ├── .dockerignore              # Exclusões para build da imagem Docker
 ├── .env.example               # Modelo documentado de variáveis de ambiente
 ├── .gitignore                 # Configuração de arquivos ignorados pelo Git
-├── AUDIT_REPORT.md            # Relatório consolidado de auditoria arquitetural e testes (Nota A+)
 ├── Dockerfile                 # Imagem Docker multi-stage (Python 3.12 + Streamlit)
 ├── docker-compose.yml         # Orquestração Docker com persistência de dados
-├── PROJECT.md                 # Especificação arquitetural, roadmap e contratos do projeto
 ├── README.md                  # Documentação principal do repositório
-├── RELATORIO_AUDITORIA.md     # Relatório consolidado de auditoria e dívida técnica
-├── TEST_INFRA.md              # Documentação de infraestrutura de testes
-├── TEST_READY.md              # Checklist de prontidão de testes
 ├── app.py                     # Interface Web Streamlit (Chat do Colaborador)
 ├── pytest.ini                 # Configurações de execução do Pytest
 ├── requirements.txt           # Especificação de dependências Python do projeto
