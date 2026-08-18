@@ -19,6 +19,108 @@ A aplicação está disponível e rodando em ambiente de produção em nuvem com
 
 ---
 
+## 💬 Exemplos de Perguntas e Respostas do Agente
+
+O assistente corporativo responde com base estrita nos 8 documentos oficiais do Mercado Central 24h, fornecendo resumo direto (TL;DR), detalhamento e citações formais:
+
+<details open>
+<summary><b>1. Escala de Trabalho e Automação com IA (Regulamento Interno)</b></summary>
+
+> **Pergunta:** *A empresa adota a escala 6x1 de trabalho? Como funciona a escala dos colaboradores?*
+>
+> **Resposta do Assistente:**
+> **Resumo Direto:**
+> O Mercado Central 24h **NÃO** adota o regime de escala 6x1. A empresa adota oficialmente a **Escala 5x2** (5 dias de trabalho por 2 dias de folga semanal) para 100% dos seus colaboradores, totalizando 44 horas semanais de jornada.
+>
+> **Detalhamento:**
+> A viabilização da escala 5x2 em uma operação ininterrupta que funciona 24 horas por dia, 7 dias por semana, é suportada diretamente pelo uso intensivo de automação de processos e ecossistema de Inteligência Artificial (IA) implementado nas rotinas da empresa. A jornada é distribuída em 5 turnos operacionais (T1 a T5).
+>
+> **Fontes Consultadas:**
+> • `[Fonte: Regulamento_Interno_e_SOP.pdf, Seção: 2. JORNADA DE TRABALHO, ESCALA 5X2 E TECNOLOGIA DE INTELIGÊNCIA, Pág. 2]`
+> • `[Fonte: Manual_de_Perguntas_Frequentes_FAQ.pdf, Seção: 21. Qual é a escala de trabalho dos colaboradores?, Pág. 5]`
+</details>
+
+<details>
+<summary><b>2. Programa de Fidelidade e Cashback (Cliente VIP Central)</b></summary>
+
+> **Pergunta:** *Quais são os níveis e os benefícios de cashback do programa Cliente VIP Central?*
+>
+> **Resposta do Assistente:**
+> **Resumo Direto:**
+> O programa **Cliente VIP Central** é estruturado em 4 níveis progressivos com cashback acumulativo para compras nas lojas físicas e no app.
+>
+> **Detalhamento:**
+> • **Nível Bronze:** 1,0% de cashback em todas as compras.  
+> • **Nível Prata:** 2,0% de cashback + ofertas exclusivas no app.  
+> • **Nível Gold:** 3,0% de cashback + frete grátis em compras acima de R$ 150,00.  
+> • **Nível Diamante:** 5,0% de cashback + frete grátis ilimitado + canal de atendimento prioritário.  
+>
+> O saldo de cashback possui validade de 180 dias a contar da data de crédito na carteira digital.
+>
+> **Fontes Consultadas:**
+> • `[Fonte: Termos_e_Condicoes_de_Uso.pdf, Seção: 4. Programa de Fidelidade Cliente VIP Central, Págs. 3-4]`
+> • `[Fonte: Manual_de_Perguntas_Frequentes_FAQ.pdf, Seção: 14. Como funciona o cashback do Cliente VIP Central?, Pág. 4]`
+</details>
+
+<details>
+<summary><b>3. Prazos de Entrega e Frete Grátis (Logística & Delivery SP/RJ)</b></summary>
+
+> **Pergunta:** *Qual é o prazo do Delivery Express e qual o valor mínimo para frete grátis?*
+>
+> **Resposta do Assistente:**
+> **Resumo Direto:**
+> O **Delivery Express 3h** realiza entregas em até **3 horas** após a confirmação do pedido dentro do raio de atendimento de até 15 km das unidades físicas (Vila Mariana em SP e Cordeiro no RJ).
+>
+> **Detalhamento:**
+> • **Frete Grátis:** Concedido para compras a partir de R$ 200,00 (padrão) ou a partir de R$ 150,00 para clientes dos níveis Gold e Diamante do programa VIP.  
+> • **Janelas Agendadas:** Disponíveis em slots de 2 horas (08h-10h, 10h-12h, 14h-16h, 18h-20h, 20h-22h).  
+> • **Operação Noturna:** Entregas da madrugada são realizadas exclusivamente para pedidos confirmados até as 23h00.
+>
+> **Fontes Consultadas:**
+> • `[Fonte: Guia_de_Envios_e_Entregas.pdf, Seção: 2. Modalidades de Envio e Prazos, Págs. 1-2]`
+> • `[Fonte: Politica_Integrada_de_Atendimento_Trocas_Devolucoes_e_Privacidade.pdf, Seção: 3.2. Prazos e Condições de Frete, Pág. 4]`
+</details>
+
+<details>
+<summary><b>4. Trocas, Devoluções e Reembolso (Código de Defesa do Consumidor)</b></summary>
+
+> **Pergunta:** *Qual é o prazo para devolução por arrependimento de compras online e devolução de perecíveis?*
+>
+> **Resposta do Assistente:**
+> **Resumo Direto:**
+> Para compras realizadas via e-commerce ou aplicativo, o prazo de devolução por arrependimento é de **7 (sete) dias corridos** a contar do recebimento, conforme o Art. 49 do Código de Defesa do Consumidor (CDC).
+>
+> **Detalhamento:**
+> • **Produtos Não Perecíveis:** Devem estar na embalagem original, sem indícios de uso e acompanhados da Nota Fiscal (DANFE).  
+> • **Produtos Perecíveis (Hortifrúti, Carnes, Frios, Laticínios):** Reclamações de avaria ou desconformidade devem ser formalizadas no ato do recebimento ou em até **24 horas**, mediante envio de foto pelo SAC.  
+> • **Estorno:** Cartão de crédito (estorno em até 2 faturas) ou PIX (reembolso imediato em até 24h úteis).
+>
+> **Fontes Consultadas:**
+> • `[Fonte: Politica_de_Reembolso_e_Devolucoes.pdf, Seção: 2. Direito de Arrependimento e Prazos CDC, Págs. 1-2]`
+> • `[Fonte: Politica_Integrada_de_Atendimento_Trocas_Devolucoes_e_Privacidade.pdf, Seção: 2.1. Trocas e Reembolsos, Pág. 3]`
+</details>
+
+<details>
+<summary><b>5. Privacidade de Dados, LGPD e Roteamento para o DPO</b></summary>
+
+> **Pergunta:** *Como faço para solicitar a exclusão definitiva dos meus dados pessoais (LGPD)?*
+>
+> **Resposta do Assistente:**
+> **Resumo Direto:**
+> O titular dos dados pode solicitar a exclusão, revogação de consentimento ou portabilidade de dados entrando em contato direto com o Encarregado de Proteção de Dados (DPO).
+>
+> **Detalhamento:**
+> • **E-mail do DPO:** `dpo@mercadocentral24h.com.br`  
+> • **Base Legal:** Art. 18 da Lei Geral de Proteção de Dados (Lei nº 13.709/2018).  
+> • **Prazo de Atendimento:** Resposta simplificada em até 48 horas úteis e declaração completa/execução em até 15 dias corridos.  
+> • **Exceções:** Dados mantidos para cumprimento de obrigações legais, fiscais (guarda de Notas Fiscais por 5 anos) ou regulatórias.
+>
+> **Fontes Consultadas:**
+> • `[Fonte: Politica_de_Privacidade_LGPD.pdf, Seção: 5. Direitos do Titular e Canal de Atendimento do DPO, Págs. 3-4]`
+</details>
+
+---
+
 ## 📁 Estrutura do Repositório
 
 ```text
